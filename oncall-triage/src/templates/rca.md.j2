@@ -1,0 +1,39 @@
+🔍 *ROOT CAUSE ANALYSIS*
+
+*Alert:* {{ analysis.alert_id }}
+*Confidence:* {{ analysis.confidence | upper }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 *Probable Cause*
+{{ analysis.probable_cause }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{% if analysis.evidence %}
+📊 *Evidence*
+{% for item in analysis.evidence %}
+  {{ loop.index }}. {{ item }}
+{% endfor %}
+{% endif %}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{% if analysis.code_references %}
+💻 *Relevant Code*
+{% for ref in analysis.code_references %}
+  *{{ ref.repo }}* — `{{ ref.file_path }}`
+  {{ ref.github_link }}
+{% if ref.snippet %}
+```
+{{ ref.snippet[:500] }}
+```
+{% endif %}
+{% endfor %}
+{% endif %}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{% if analysis.suggested_actions %}
+✅ *Suggested Actions*
+{% for action in analysis.suggested_actions %}
+  {{ loop.index }}. {{ action }}
+{% endfor %}
+{% endif %}

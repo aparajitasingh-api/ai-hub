@@ -1,0 +1,48 @@
+🚨 *ONCALL TRIAGE REPORT*
+
+*Alert:* {{ alert.title }}
+*Status:* {{ alert.transition }} | *Priority:* {{ alert.tags | join(', ') }}
+*Time:* {{ alert.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') }}
+*Service:* {{ alert.service or 'N/A' }} | *Host:* {{ alert.hostname or 'N/A' }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 *SUMMARY*
+{{ summary }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{% if metrics and metrics.series %}
+📈 *METRIC DATA* ({{ alert.metric }})
+  Query: `{{ alert.query }}`
+  Window: {{ alert.metric_window_start.strftime('%H:%M:%S') }} → {{ alert.metric_window_end.strftime('%H:%M:%S') }}
+{% for s in metrics.series %}
+  *{{ s.display_name }}* ({{ s.scope }})
+    Peak: {{ s.peak_value if s.peak_value is not none else 'N/A' }}{% if s.unit %} {{ s.unit }}{% endif %}
+
+    Latest: {{ s.latest_value if s.latest_value is not none else 'N/A' }}{% if s.unit %} {{ s.unit }}{% endif %}
+
+    Data points: {{ s.points | length }}
+{% endfor %}
+{% else %}
+📈 *METRIC DATA*: unavailable
+{% endif %}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+{% if logs %}
+📜 *LOGS* ({{ logs.total_hits }} total hits, showing {{ logs.entries | length }})
+{% for entry in logs.entries[:20] %}
+  `{{ entry.timestamp }}` *{{ entry.level | upper }}*: {{ entry.message[:200] }}
+{% endfor %}
+{% if logs.total_hits > 20 %}
+  ... and {{ logs.total_hits - 20 }} more entries
+{% endif %}
+{% else %}
+📜 *LOGS*: unavailable
+{% endif %}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔗 *LINKS*
+{% if alert.datadog_link %}  • Datadog: {{ alert.datadog_link }}{% endif %}
+{% if logs and logs.kibana_link %}  • Kibana: {{ logs.kibana_link }}{% endif %}
+{% if alert.snapshot_url %}  • Snapshot: {{ alert.snapshot_url }}{% endif %}

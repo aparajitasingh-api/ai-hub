@@ -1,0 +1,18 @@
+{
+  "ALERT_ID": "12345678",
+  "ALERT_METRIC": "avg:system.cpu.idle{host:web-01}",
+  "ALERT_QUERY": "avg(last_5m):avg:system.cpu.idle{host:web-01} < 10",
+  "ALERT_TITLE": "[P1] CPU idle critically low on web-01",
+  "ALERT_TRANSITION": "Triggered",
+  "ALERT_SCOPE": "host:web-01",
+  "ALERT_STATUS": "CPU idle has dropped below 10% for the last 5 minutes",
+  "ALERT_TYPE": "metric alert",
+  "HOSTNAME": "web-01",
+  "TAGS": "service:payment-api,env:production,team:platform",
+  "DATE": "1710864000",
+  "LINK": "https://app.datadoghq.com/monitors/12345678",
+  "SNAPSHOT": "https://p.datadoghq.com/snapshot/abc123.png",
+  "EVENT_MSG": "CPU idle dropped below threshold.\n\nHost web-01 is experiencing high CPU usage.",
+  "ORG_ID": "99999",
+  "PRIORITY": "P1"
+}
