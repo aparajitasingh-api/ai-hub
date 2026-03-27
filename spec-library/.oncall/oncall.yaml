@@ -1,0 +1,12 @@
+service:
+  datadog_name: spec-library
+  github_repo: spec-library
+  kibana:
+    base_url: https://kibana.example.com
+    index_pattern: spec-library-*
+    default_query: "service.name:spec-library"
+  victoria_metrics:
+    base_url: https://vm.example.com
+    default_query: "up{service=\"spec-library\"}"
+  oncall_channel: "#spec-oncall"
+  owner_team: me

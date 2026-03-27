@@ -1,4 +1,4 @@
-module oncall-registry
+module spec-library
 
 go 1.22
 
