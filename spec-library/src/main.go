@@ -358,6 +358,10 @@ func main() {
 	reg := &Registry{services: make(map[string]ServiceSpec)}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "ok")
+	})
 	mux.HandleFunc("POST /refresh", refreshHandler(reg))
 	mux.HandleFunc("GET /service/{name}", serviceHandler(reg))
 

@@ -1,0 +1,25 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: spec-library-refresh
+  labels:
+    app: spec-library
+spec:
+  schedule: "0 */6 * * *"  # every 6 hours
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          containers:
+            - name: refresh
+              image: curlimages/curl:8.5.0
+              command:
+                - curl
+                - -sf
+                - -X
+                - POST
+                - http://spec-library.default.svc.cluster.local/refresh
+          restartPolicy: OnFailure
