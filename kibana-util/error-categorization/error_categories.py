@@ -21,7 +21,7 @@ CACHE_DIR.mkdir(exist_ok=True)
 
 MAX_ITERATIONS = 10
 WORDS_PER_MESSAGE = 20
-TOKEN_BUDGET = 4000
+TOKEN_BUDGET = 40
 CHARS_PER_TOKEN = 4
 MAX_MESSAGES = (TOKEN_BUDGET * CHARS_PER_TOKEN) // (WORDS_PER_MESSAGE * 6)  # ~6 chars/word
 
@@ -116,6 +116,7 @@ def fetch_other_messages(index: str, container: str, start: datetime, end: datet
         }
     }
     resp = es.search(index=index, body=query)
+    print(f"Fetched {len(resp['hits']['hits'])} 'other' messages from ES")
     return [hit["_source"]["message"] for hit in resp["hits"]["hits"]]
 
 
@@ -194,6 +195,8 @@ Return ONLY valid JSON in this exact format, no explanation:
   "category_label": ["matching phrase"],
   "another_category": ["its matching phrase"]
 }}"""
+
+    print("PROMPT :: ", prompt)
 
     resp = litellm.completion(
         model=MODEL,
