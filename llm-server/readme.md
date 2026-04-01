@@ -107,7 +107,7 @@ Model behaviour is controlled via environment variables. In Kubernetes these are
 
 ---
 
-## Local Development Setup (Docker)
+## Local Development Setup (Docker) (use ollama whenever possible)
 
 ### Prerequisites
 
@@ -230,6 +230,106 @@ curl http://localhost:4000/v1/chat/completions \
 | 14B Q4_K_M, ctx 4096, parallel 2 | ~13–14GB | Borderline |
 
 ---
+
+```markdown
+## Local Development Setup (macOS — Ollama)
+
+Recommended for Apple Silicon Macs. Ollama runs natively on macOS and uses Metal GPU directly,
+giving 10–20x better throughput than Docker-based llama-server on M-series chips.
+
+### Install
+
+```bash
+brew install ollama
+```
+
+### Shell configuration
+
+Add to `~/.zshrc`:
+
+```bash
+export OLLAMA_FLASH_ATTENTION=1   # significant speedup on Apple Silicon
+export OLLAMA_KEEP_ALIVE=1h       # keep model loaded between requests
+```
+
+Then:
+
+```bash
+source ~/.zshrc
+```
+
+### Pull models
+
+```bash
+# for stack validation (fast, ~60-80 tok/s on M4)
+ollama pull qwen2.5-coder:3b
+
+# for quality testing
+ollama pull qwen2.5-coder:7b
+ollama pull qwen2.5-coder:14b
+```
+
+### Run
+
+```bash
+ollama serve &
+ollama run qwen2.5-coder:3b "write a python hello world"
+```
+
+Verify GPU is being used:
+
+```bash
+ollama ps
+# PROCESSOR column should show Metal, not CPU
+```
+
+### Connect LiteLLM to Ollama
+
+Update `litellm/config.yaml`:
+
+```yaml
+model_list:
+  - model_name: qwen-local
+    litellm_params:
+      model: ollama/qwen2.5-coder:3b
+      api_base: http://host.docker.internal:11434
+```
+
+Run only LiteLLM in Docker (Ollama runs natively outside Docker):
+
+```bash
+docker compose up litellm
+```
+
+### Troubleshooting
+
+**Model using CPU instead of Metal** — another process (e.g. Docker Desktop) is consuming
+unified memory. Stop Docker Desktop, then unload and reload the model:
+
+```bash
+curl http://localhost:11434/api/generate \
+  -d '{"model": "qwen2.5-coder:3b", "keep_alive": 0}'
+ollama run qwen2.5-coder:3b "hello"
+```
+
+**First request is slow** — Metal compiles GPU kernels on first use per session. The second
+request onwards will be at full speed.
+
+**Checking actual throughput**:
+
+```bash
+ollama run --verbose qwen2.5-coder:3b "write a python function to reverse a string"
+# prints eval rate: X tokens/s at the end
+```
+
+### RAM expectations on Apple Silicon
+
+| Model | Approx tok/s (M4) | Safe on 16GB with Docker stopped? |
+|---|---|---|
+| 3B Q4_K_M | ~60–80 | Yes |
+| 7B Q4_K_M | ~30–50 | Yes |
+| 14B Q4_K_M | ~10–20 | Yes, but close |
+```
 
 ## Kubernetes Deployment (EKS)
 

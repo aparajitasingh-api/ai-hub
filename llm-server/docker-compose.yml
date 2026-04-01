@@ -4,16 +4,17 @@ services:
     platform: linux/arm64
     volumes:
       - ./models:/models
-    environment:
-      LLAMA_ARG_MODEL: /models/${MODEL_FILE:-qwen2.5-coder-7b-instruct-q4_k_m.gguf}
-      LLAMA_ARG_CTX_SIZE: ${CTX_SIZE:-4096}
-      LLAMA_ARG_N_PARALLEL: ${PARALLEL:-2}
-      LLAMA_ARG_HOST: 0.0.0.0
-      LLAMA_ARG_PORT: 8080
-      LLAMA_ARG_CACHE_TYPE_K: ${CACHE_TYPE_K:-q8_0}
-      LLAMA_ARG_CACHE_TYPE_V: ${CACHE_TYPE_V:-q8_0}
-      LLAMA_ARG_NO_MMAP: 1
-      LLAMA_ARG_ENDPOINT_METRICS: 1
+    command: >
+      -m /models/${MODEL_FILE:-qwen2.5-coder-7b-instruct-q4_k_m.gguf}
+      --host 0.0.0.0
+      --port 8080
+      --ctx-size ${CTX_SIZE:-8192}
+      --parallel ${PARALLEL:-2}
+      --cache-type-k ${CACHE_TYPE_K:-q8_0}
+      --cache-type-v ${CACHE_TYPE_V:-q8_0}
+      --no-mmap
+      --metrics
+#      --verbose
     ports:
       - "8080:8080"
     healthcheck:

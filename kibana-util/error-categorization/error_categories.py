@@ -27,7 +27,7 @@ MAX_MESSAGES = (TOKEN_BUDGET * CHARS_PER_TOKEN) // (WORDS_PER_MESSAGE * 6)  # ~6
 
 # LiteLLM picks up API keys from env automatically per provider
 # e.g. ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY
-MODEL = os.getenv("LLM_MODEL", "gemini/gemini-2.0-flash")
+MODEL = os.getenv("LLM_MODEL", "qwen-local")
 
 es = Elasticsearch([os.getenv("ES_HOST", "http://localhost:9200")])
 
