@@ -1,0 +1,24 @@
+apiVersion: http.keda.sh/v1alpha1
+kind: HTTPScaledObject
+metadata:
+  name: llama-server-http-scaledobject
+  namespace: llm-server
+spec:
+  hosts:
+    - llm.internal.pharmeasy.in
+  pathPrefixes:
+    - /
+  scaleTargetRef:
+    apiVersion: argoproj.io/v1alpha1
+    kind: Rollout
+    name: llama-server
+    service: llama-server
+    port: 8080
+  replicas:
+    min: 0
+    max: 2
+  scalingMetric:
+    requestRate:
+      granularity: 1s
+      targetValue: 5               # llama-server is heavier, scale earlier
+      window: 1m

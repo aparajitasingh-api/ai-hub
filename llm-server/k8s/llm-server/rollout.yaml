@@ -1,0 +1,138 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: llama-server
+  namespace: llm-server
+spec:
+  replicas: 2
+  revisionHistoryLimit: 2
+  selector:
+    matchLabels:
+      app: llama-server
+  strategy:
+    canary:                         # Argo Rollouts rolling = canary with maxSurge/maxUnavailable
+      maxSurge: 1
+      maxUnavailable: 0
+      steps:
+        - setWeight: 50
+        - pause: {}                 # manual promotion gate — remove for fully automated rollout
+        - setWeight: 100
+  template:
+    metadata:
+      labels:
+        app: llama-server
+    spec:
+      initContainers:
+        - name: model-downloader
+          image: python:3.11-slim
+          command:
+            - /bin/sh
+            - -c
+            - |
+              MODEL_PATH="/models/${MODEL_FILE}"
+              if [ -f "${MODEL_PATH}" ]; then
+                echo "Model already exists at ${MODEL_PATH}, skipping download."
+                exit 0
+              fi
+              echo "Downloading ${MODEL_FILE} from ${HF_MODEL_REPO}..."
+              pip install --quiet huggingface_hub
+              huggingface-cli download "${HF_MODEL_REPO}" "${MODEL_FILE}" \
+                --local-dir /models \
+                --local-dir-use-symlinks False
+              echo "Download complete."
+          env:
+            - name: MODEL_FILE
+              valueFrom:
+                configMapKeyRef:
+                  name: llama-server-config
+                  key: MODEL_FILE
+            - name: HF_MODEL_REPO
+              valueFrom:
+                configMapKeyRef:
+                  name: llama-server-config
+                  key: HF_MODEL_REPO
+          volumeMounts:
+            - name: models-storage
+              mountPath: /models
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+
+      containers:
+        - name: llama-server
+          image: ghcr.io/ggml-org/llama.cpp:server
+          env:
+            - name: MODEL_FILE
+              valueFrom:
+                configMapKeyRef:
+                  name: llama-server-config
+                  key: MODEL_FILE
+            - name: LLAMA_ARG_MODEL
+              value: "/models/$(MODEL_FILE)"
+            - name: LLAMA_ARG_CTX_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: llama-server-config
+                  key: CTX_SIZE
+            - name: LLAMA_ARG_N_PARALLEL
+              valueFrom:
+                configMapKeyRef:
+                  name: llama-server-config
+                  key: PARALLEL
+            - name: LLAMA_ARG_CACHE_TYPE_K
+              valueFrom:
+                configMapKeyRef:
+                  name: llama-server-config
+                  key: CACHE_TYPE_K
+            - name: LLAMA_ARG_CACHE_TYPE_V
+              valueFrom:
+                configMapKeyRef:
+                  name: llama-server-config
+                  key: CACHE_TYPE_V
+            - name: LLAMA_ARG_HOST
+              value: "0.0.0.0"
+            - name: LLAMA_ARG_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: llama-server-config
+                  key: PORT
+            - name: LLAMA_ARG_NO_MMAP
+              value: "1"
+            - name: LLAMA_ARG_ENDPOINT_METRICS
+              value: "1"
+          ports:
+            - containerPort: 8080
+              name: http
+          volumeMounts:
+            - name: models-storage
+              mountPath: /models
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 30   # model load takes time
+            periodSeconds: 10
+            failureThreshold: 12      # 2 min total before giving up
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "4"
+              memory: 20Gi
+            limits:
+              cpu: "8"
+              memory: 24Gi
+
+      volumes:
+        - name: models-storage
+          persistentVolumeClaim:
+            claimName: llama-models-pvc

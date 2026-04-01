@@ -1,0 +1,24 @@
+apiVersion: http.keda.sh/v1alpha1
+kind: HTTPScaledObject
+metadata:
+  name: litellm-http-scaledobject
+  namespace: llm-server
+spec:
+  hosts:
+    - llm.internal.pharmeasy.in     # replace with your actual internal hostname
+  pathPrefixes:
+    - /
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: litellm
+    service: litellm
+    port: 4000
+  replicas:
+    min: 0
+    max: 3
+  scalingMetric:
+    requestRate:
+      granularity: 1s
+      targetValue: 10              # scale up when >10 req/s per pod
+      window: 1m

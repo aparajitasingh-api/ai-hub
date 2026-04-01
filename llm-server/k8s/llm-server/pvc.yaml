@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: llama-models-pvc
+  namespace: llm-server
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: efs-sc          # assumes aws-efs-csi-driver is installed
+  resources:
+    requests:
+      storage: 50Gi                 # enough for 14B Q4 (~9GB) + room for swapping models

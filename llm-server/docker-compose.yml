@@ -1,0 +1,35 @@
+services:
+  llama-server:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    platform: linux/arm64
+    volumes:
+      - ./models:/models
+    environment:
+      LLAMA_ARG_MODEL: /models/${MODEL_FILE:-qwen2.5-coder-7b-instruct-q4_k_m.gguf}
+      LLAMA_ARG_CTX_SIZE: ${CTX_SIZE:-4096}
+      LLAMA_ARG_N_PARALLEL: ${PARALLEL:-2}
+      LLAMA_ARG_HOST: 0.0.0.0
+      LLAMA_ARG_PORT: 8080
+      LLAMA_ARG_CACHE_TYPE_K: ${CACHE_TYPE_K:-q8_0}
+      LLAMA_ARG_CACHE_TYPE_V: ${CACHE_TYPE_V:-q8_0}
+      LLAMA_ARG_NO_MMAP: 1
+      LLAMA_ARG_ENDPOINT_METRICS: 1
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml
+    command: --config /app/config.yaml --port 4000
+    ports:
+      - "4000:4000"
+    depends_on:
+      llama-server:
+        condition: service_healthy
