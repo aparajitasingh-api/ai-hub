@@ -14,7 +14,6 @@ services:
       --cache-type-v ${CACHE_TYPE_V:-q8_0}
       --no-mmap
       --metrics
-#      --verbose
     ports:
       - "8080:8080"
     healthcheck:
@@ -27,7 +26,7 @@ services:
   litellm:
     image: ghcr.io/berriai/litellm:main-latest
     volumes:
-      - ./litellm/config.yaml:/app/config.yaml
+      - ./litellm-config.yaml:/app/config.yaml
     command: --config /app/config.yaml --port 4000
     ports:
       - "4000:4000"

@@ -1,0 +1,92 @@
+# litellm deployment template
+# ---------------------------------------------------------------------------
+# All values wrapped in ${...} are substituted from:
+#   k8s/<env>/litellm/vars.yml
+#
+# LiteLLM acts as an OpenAI-compatible proxy in front of one or more
+# ollama-server instances.  The upstream model routing is defined in the
+# LITELLM_CONFIG block inside vars.yml so each environment can point to
+# its own set of ollama-server backends.
+# ---------------------------------------------------------------------------
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${NAMESPACE}
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: litellm-config
+  namespace: ${NAMESPACE}
+data:
+  config.yaml: |
+${LITELLM_CONFIG}
+
+---
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: litellm
+  namespace: ${NAMESPACE}
+spec:
+  replicas: ${REPLICAS}
+  selector:
+    matchLabels:
+      app: litellm
+  template:
+    metadata:
+      labels:
+        app: litellm
+    spec:
+      containers:
+        - name: litellm
+          image: ${LITELLM_IMAGE}
+          args:
+            - --config
+            - /app/config.yaml
+            - --port
+            - "${LITELLM_PORT}"
+          ports:
+            - containerPort: ${LITELLM_PORT}
+              name: http
+          volumeMounts:
+            - name: litellm-config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: ${LITELLM_PORT}
+            initialDelaySeconds: ${READINESS_INITIAL_DELAY}
+            periodSeconds: ${READINESS_PERIOD}
+          resources:
+            requests:
+              cpu: "${RESOURCES_CPU_REQUEST}"
+              memory: ${RESOURCES_MEMORY_REQUEST}
+            limits:
+              cpu: "${RESOURCES_CPU_LIMIT}"
+              memory: ${RESOURCES_MEMORY_LIMIT}
+      volumes:
+        - name: litellm-config
+          configMap:
+            name: litellm-config
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: litellm
+  namespace: ${NAMESPACE}
+spec:
+  selector:
+    app: litellm
+  ports:
+    - name: http
+      port: ${LITELLM_PORT}
+      targetPort: ${LITELLM_PORT}
+  type: ClusterIP

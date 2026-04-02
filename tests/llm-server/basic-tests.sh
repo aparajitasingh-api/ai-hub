@@ -1,4 +1,10 @@
-# Direct llama-server test
+#!/usr/bin/env bash
+# Integration tests for llm-server (ollama-server + litellm).
+# Run after: docker compose up -d  (from this directory)
+
+set -euo pipefail
+
+echo "=== Direct llama-server test ==="
 curl http://localhost:8080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
@@ -8,7 +14,7 @@ curl http://localhost:8080/v1/chat/completions \
 
 echo "========"
 
-# Via LiteLLM proxy (this is what your dev tools should point to)
+echo "=== Via LiteLLM proxy ==="
 curl http://localhost:4000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer anything" \
@@ -18,4 +24,3 @@ curl http://localhost:4000/v1/chat/completions \
   }' | jq .
 
 echo "========"
-

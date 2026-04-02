@@ -1,24 +1,72 @@
+# ollama-server deployment template
+# ---------------------------------------------------------------------------
+# All values wrapped in ${...} are substituted from:
+#   k8s/<env>/ollama-server/vars.yml
+#
+# The template is reusable across environments AND across different models
+# within the same environment.  For example, staging might run a single 3b
+# workload while production runs both 3b and 14b as separate StatefulSets.
+# ---------------------------------------------------------------------------
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${NAMESPACE}
+
+---
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ${PVC_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  accessModes:
+    - ${PVC_ACCESS_MODE}
+  storageClassName: ${STORAGE_CLASS}
+  resources:
+    requests:
+      storage: ${PVC_STORAGE_SIZE}
+
+---
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ${APP_NAME}-config
+  namespace: ${NAMESPACE}
+data:
+  MODEL_FILE: "${MODEL_FILE}"
+  HF_MODEL_REPO: "${HF_MODEL_REPO}"
+  CTX_SIZE: "${CTX_SIZE}"
+  PARALLEL: "${PARALLEL}"
+  CACHE_TYPE_K: "${CACHE_TYPE_K}"
+  CACHE_TYPE_V: "${CACHE_TYPE_V}"
+  PORT: "${OLLAMA_PORT}"
+
+---
+
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: llama-server
-  namespace: llm-server
+  name: ${APP_NAME}
+  namespace: ${NAMESPACE}
 spec:
-  serviceName: llama-server
-  replicas: 2
+  serviceName: ${APP_NAME}
+  replicas: ${REPLICAS}
   revisionHistoryLimit: 2
   selector:
     matchLabels:
-      app: llama-server
+      app: ${APP_NAME}
   updateStrategy:
     type: RollingUpdate
     rollingUpdate:
-      partition: 0          # set to 1 to do a manual canary (only pod-0 updates)
-      # set to 0 to roll all pods
+      partition: 0
   template:
     metadata:
       labels:
-        app: llama-server
+        app: ${APP_NAME}
+        model: ${MODEL_LABEL}
     spec:
       initContainers:
         - name: model-downloader
@@ -42,12 +90,12 @@ spec:
             - name: MODEL_FILE
               valueFrom:
                 configMapKeyRef:
-                  name: llama-server-config
+                  name: ${APP_NAME}-config
                   key: MODEL_FILE
             - name: HF_MODEL_REPO
               valueFrom:
                 configMapKeyRef:
-                  name: llama-server-config
+                  name: ${APP_NAME}-config
                   key: HF_MODEL_REPO
           volumeMounts:
             - name: models-storage
@@ -62,48 +110,48 @@ spec:
 
       containers:
         - name: llama-server
-          image: ghcr.io/ggml-org/llama.cpp:server
+          image: ${LLAMA_SERVER_IMAGE}
           env:
             - name: MODEL_FILE
               valueFrom:
                 configMapKeyRef:
-                  name: llama-server-config
+                  name: ${APP_NAME}-config
                   key: MODEL_FILE
             - name: LLAMA_ARG_MODEL
               value: "/models/$(MODEL_FILE)"
             - name: LLAMA_ARG_CTX_SIZE
               valueFrom:
                 configMapKeyRef:
-                  name: llama-server-config
+                  name: ${APP_NAME}-config
                   key: CTX_SIZE
             - name: LLAMA_ARG_N_PARALLEL
               valueFrom:
                 configMapKeyRef:
-                  name: llama-server-config
+                  name: ${APP_NAME}-config
                   key: PARALLEL
             - name: LLAMA_ARG_CACHE_TYPE_K
               valueFrom:
                 configMapKeyRef:
-                  name: llama-server-config
+                  name: ${APP_NAME}-config
                   key: CACHE_TYPE_K
             - name: LLAMA_ARG_CACHE_TYPE_V
               valueFrom:
                 configMapKeyRef:
-                  name: llama-server-config
+                  name: ${APP_NAME}-config
                   key: CACHE_TYPE_V
             - name: LLAMA_ARG_HOST
               value: "0.0.0.0"
             - name: LLAMA_ARG_PORT
               valueFrom:
                 configMapKeyRef:
-                  name: llama-server-config
+                  name: ${APP_NAME}-config
                   key: PORT
             - name: LLAMA_ARG_NO_MMAP
               value: "1"
             - name: LLAMA_ARG_ENDPOINT_METRICS
               value: "1"
           ports:
-            - containerPort: 8080
+            - containerPort: ${OLLAMA_PORT}
               name: http
           volumeMounts:
             - name: models-storage
@@ -111,26 +159,42 @@ spec:
           readinessProbe:
             httpGet:
               path: /health
-              port: 8080
-            initialDelaySeconds: 30
-            periodSeconds: 10
-            failureThreshold: 12
+              port: ${OLLAMA_PORT}
+            initialDelaySeconds: ${READINESS_INITIAL_DELAY}
+            periodSeconds: ${READINESS_PERIOD}
+            failureThreshold: ${READINESS_FAILURE_THRESHOLD}
           livenessProbe:
             httpGet:
               path: /health
-              port: 8080
-            initialDelaySeconds: 60
-            periodSeconds: 30
-            failureThreshold: 3
+              port: ${OLLAMA_PORT}
+            initialDelaySeconds: ${LIVENESS_INITIAL_DELAY}
+            periodSeconds: ${LIVENESS_PERIOD}
+            failureThreshold: ${LIVENESS_FAILURE_THRESHOLD}
           resources:
             requests:
-              cpu: "2"
-              memory: 8Gi
+              cpu: "${RESOURCES_CPU_REQUEST}"
+              memory: ${RESOURCES_MEMORY_REQUEST}
             limits:
-              cpu: "8"
-              memory: 24Gi
+              cpu: "${RESOURCES_CPU_LIMIT}"
+              memory: ${RESOURCES_MEMORY_LIMIT}
 
       volumes:
         - name: models-storage
           persistentVolumeClaim:
-            claimName: llama-models-pvc    # shared RWX PVC across all pods
+            claimName: ${PVC_NAME}
+
+---
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${APP_NAME}
+  namespace: ${NAMESPACE}
+spec:
+  selector:
+    app: ${APP_NAME}
+  ports:
+    - name: http
+      port: ${OLLAMA_PORT}
+      targetPort: ${OLLAMA_PORT}
+  type: ClusterIP
