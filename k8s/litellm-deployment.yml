@@ -1,18 +1,21 @@
 # litellm deployment template
 # ---------------------------------------------------------------------------
 # All values wrapped in ${...} are substituted from:
-#   k8s/<env>/litellm/vars.yml
+#   k8s/<env>/vars.yml
+#
+# Variables use the LITELLM_ prefix.  The SHARED_ prefix is used for values
+# common to all components (e.g. namespace).
 #
 # LiteLLM acts as an OpenAI-compatible proxy in front of one or more
-# ollama-server instances.  The upstream model routing is defined in the
-# LITELLM_CONFIG block inside vars.yml so each environment can point to
-# its own set of ollama-server backends.
+# ollama-server instances.  The upstream model routing is defined in
+# LITELLM_CONFIG inside vars.yml so each environment can point to its own
+# set of ollama-server backends.
 # ---------------------------------------------------------------------------
 
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ${NAMESPACE}
+  name: ${SHARED_NAMESPACE}
 
 ---
 
@@ -20,7 +23,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: litellm-config
-  namespace: ${NAMESPACE}
+  namespace: ${SHARED_NAMESPACE}
 data:
   config.yaml: |
 ${LITELLM_CONFIG}
@@ -31,9 +34,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: litellm
-  namespace: ${NAMESPACE}
+  namespace: ${SHARED_NAMESPACE}
 spec:
-  replicas: ${REPLICAS}
+  replicas: ${LITELLM_REPLICAS}
   selector:
     matchLabels:
       app: litellm
@@ -61,15 +64,15 @@ spec:
             httpGet:
               path: /health
               port: ${LITELLM_PORT}
-            initialDelaySeconds: ${READINESS_INITIAL_DELAY}
-            periodSeconds: ${READINESS_PERIOD}
+            initialDelaySeconds: ${LITELLM_READINESS_INITIAL_DELAY}
+            periodSeconds: ${LITELLM_READINESS_PERIOD}
           resources:
             requests:
-              cpu: "${RESOURCES_CPU_REQUEST}"
-              memory: ${RESOURCES_MEMORY_REQUEST}
+              cpu: "${LITELLM_CPU_REQUEST}"
+              memory: ${LITELLM_MEMORY_REQUEST}
             limits:
-              cpu: "${RESOURCES_CPU_LIMIT}"
-              memory: ${RESOURCES_MEMORY_LIMIT}
+              cpu: "${LITELLM_CPU_LIMIT}"
+              memory: ${LITELLM_MEMORY_LIMIT}
       volumes:
         - name: litellm-config
           configMap:
@@ -81,7 +84,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: litellm
-  namespace: ${NAMESPACE}
+  namespace: ${SHARED_NAMESPACE}
 spec:
   selector:
     app: litellm
