@@ -1,22 +1,20 @@
-apiVersion: argoproj.io/v1alpha1
-kind: Rollout
+apiVersion: apps/v1
+kind: StatefulSet
 metadata:
   name: llama-server
   namespace: llm-server
 spec:
+  serviceName: llama-server
   replicas: 2
   revisionHistoryLimit: 2
   selector:
     matchLabels:
       app: llama-server
-  strategy:
-    canary:                         # Argo Rollouts rolling = canary with maxSurge/maxUnavailable
-      maxSurge: 1
-      maxUnavailable: 0
-      steps:
-        - setWeight: 50
-        - pause: {}                 # manual promotion gate — remove for fully automated rollout
-        - setWeight: 100
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0          # set to 1 to do a manual canary (only pod-0 updates)
+      # set to 0 to roll all pods
   template:
     metadata:
       labels:
@@ -114,9 +112,9 @@ spec:
             httpGet:
               path: /health
               port: 8080
-            initialDelaySeconds: 30   # model load takes time
+            initialDelaySeconds: 30
             periodSeconds: 10
-            failureThreshold: 12      # 2 min total before giving up
+            failureThreshold: 12
           livenessProbe:
             httpGet:
               path: /health
@@ -126,8 +124,8 @@ spec:
             failureThreshold: 3
           resources:
             requests:
-              cpu: "4"
-              memory: 20Gi
+              cpu: "2"
+              memory: 8Gi
             limits:
               cpu: "8"
               memory: 24Gi
@@ -135,4 +133,4 @@ spec:
       volumes:
         - name: models-storage
           persistentVolumeClaim:
-            claimName: llama-models-pvc
+            claimName: llama-models-pvc    # shared RWX PVC across all pods
