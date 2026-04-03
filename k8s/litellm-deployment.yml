@@ -31,42 +31,42 @@ spec:
       labels:
         app: litellm
     spec:
-  {% if env != 'production' %}
-imagePullSecrets:
-  - name: ecr-secret
-  {% endif %}
-containers:
-  - name: litellm
-    image: {{ LITELLM_IMAGE }}
-    args:
-      - --config
-      - /app/config.yaml
-      - --port
-      - "{{ LITELLM_PORT }}"
-    ports:
-      - containerPort: {{ LITELLM_PORT }}
-        name: http
-    volumeMounts:
-      - name: litellm-config
-        mountPath: /app/config.yaml
-        subPath: config.yaml
-    readinessProbe:
-      httpGet:
-        path: /health
-        port: {{ LITELLM_PORT }}
-      initialDelaySeconds: {{ LITELLM_READINESS_INITIAL_DELAY }}
-      periodSeconds: {{ LITELLM_READINESS_PERIOD }}
-    resources:
-      requests:
-        cpu: "{{ LITELLM_CPU_REQUEST }}"
-        memory: {{ LITELLM_MEMORY_REQUEST }}
-      limits:
-        cpu: "{{ LITELLM_CPU_LIMIT }}"
-        memory: {{ LITELLM_MEMORY_LIMIT }}
-volumes:
-  - name: litellm-config
-    configMap:
-      name: litellm-config
+      {% if env != 'production' %}
+      imagePullSecrets:
+      - name: ecr-secret
+      {% endif %}
+      containers:
+        - name: litellm
+          image: {{ LITELLM_IMAGE }}
+          args:
+            - --config
+            - /app/config.yaml
+            - --port
+            - "{{ LITELLM_PORT }}"
+          ports:
+            - containerPort: {{ LITELLM_PORT }}
+              name: http
+          volumeMounts:
+            - name: litellm-config
+              mountPath: /app/config.yaml
+              subPath: config.yaml
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ LITELLM_PORT }}
+            initialDelaySeconds: {{ LITELLM_READINESS_INITIAL_DELAY }}
+            periodSeconds: {{ LITELLM_READINESS_PERIOD }}
+          resources:
+            requests:
+              cpu: "{{ LITELLM_CPU_REQUEST }}"
+              memory: {{ LITELLM_MEMORY_REQUEST }}
+            limits:
+              cpu: "{{ LITELLM_CPU_LIMIT }}"
+              memory: {{ LITELLM_MEMORY_LIMIT }}
+      volumes:
+        - name: litellm-config
+          configMap:
+            name: litellm-config
 
 ---
 
