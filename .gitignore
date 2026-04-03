@@ -12,3 +12,4 @@ dist/
 *.egg-info
 
 /llm-server/models/
+/k8s/deploy-to-staging.sh

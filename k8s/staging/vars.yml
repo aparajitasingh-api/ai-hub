@@ -1,12 +1,49 @@
 # -- Shared --
 SHARED_NAMESPACE: ai-hub
-env: staging   # <-- add this; set to "production" in prod vars
+env: staging
 project_name: ai-hub
 
+# =============================================================================
+# ollama-server (3b)
+# =============================================================================
+OLLAMA_APP_NAME: ollama-server-1b
+OLLAMA_MODEL_LABEL: 1b
+OLLAMA_IMAGE: ghcr.io/ggml-org/llama.cpp:server
+
+OLLAMA_MODEL_FILE: qwen2.5-coder-1.5b-instruct-q4_k_m.gguf
+OLLAMA_HF_MODEL_REPO: Qwen/Qwen2.5-Coder-1.5B-Instruct-GGUF
+
+OLLAMA_CTX_SIZE: "4096"
+OLLAMA_PARALLEL: "4"
+OLLAMA_CACHE_TYPE_K: q8_0
+OLLAMA_CACHE_TYPE_V: q8_0
+OLLAMA_PORT: 8080
+
+OLLAMA_REPLICAS: 1
+
+OLLAMA_CPU_REQUEST: "500m"
+OLLAMA_MEMORY_REQUEST: 512Mi
+OLLAMA_CPU_LIMIT: "2"
+OLLAMA_MEMORY_LIMIT: 8Gi
+
+OLLAMA_PVC_NAME: ollama-models-pvc
+OLLAMA_PVC_ACCESS_MODE: ReadWriteMany
+OLLAMA_STORAGE_CLASS: efs-sc
+OLLAMA_PVC_STORAGE_SIZE: 50Gi
+
+OLLAMA_READINESS_INITIAL_DELAY: 20
+OLLAMA_READINESS_PERIOD: 10
+OLLAMA_READINESS_FAILURE_THRESHOLD: 6
+OLLAMA_LIVENESS_INITIAL_DELAY: 30
+OLLAMA_LIVENESS_PERIOD: 30
+OLLAMA_LIVENESS_FAILURE_THRESHOLD: 3
+
+# =============================================================================
 # litellm
+# =============================================================================
 LITELLM_IMAGE: ghcr.io/berriai/litellm:main-latest
 LITELLM_PORT: 4000
-LITELLM_REPLICAS: 2
+LITELLM_REPLICAS: 1
 LITELLM_CPU_REQUEST: 250m
 LITELLM_MEMORY_REQUEST: 512Mi
 LITELLM_CPU_LIMIT: "1"
@@ -15,8 +52,8 @@ LITELLM_READINESS_INITIAL_DELAY: 10
 LITELLM_READINESS_PERIOD: 5
 LITELLM_CONFIG: |
     model_list:
-      - model_name: qwen-3b
+      - model_name: qwen-local
         litellm_params:
-          model: openai/qwen-3b
-          api_base: http://ollama-server-3b:8080/v1
+          model: openai/qwen-local
+          api_base: http://ollama-server-1b:8080/v1
           api_key: none

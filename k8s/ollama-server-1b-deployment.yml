@@ -9,31 +9,31 @@ metadata:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ OLLAMA_3B_APP_NAME }}-config
+  name: {{ OLLAMA_APP_NAME }}-config
   namespace: {{ SHARED_NAMESPACE }}
 data:
-  MODEL_FILE: "{{ OLLAMA_3B_MODEL_FILE }}"
-  HF_MODEL_REPO: "{{ OLLAMA_3B_HF_MODEL_REPO }}"
-  CTX_SIZE: "{{ OLLAMA_3B_CTX_SIZE }}"
-  PARALLEL: "{{ OLLAMA_3B_PARALLEL }}"
-  CACHE_TYPE_K: "{{ OLLAMA_3B_CACHE_TYPE_K }}"
-  CACHE_TYPE_V: "{{ OLLAMA_3B_CACHE_TYPE_V }}"
-  PORT: "{{ OLLAMA_3B_PORT }}"
+  MODEL_FILE: "{{ OLLAMA_MODEL_FILE }}"
+  HF_MODEL_REPO: "{{ OLLAMA_HF_MODEL_REPO }}"
+  CTX_SIZE: "{{ OLLAMA_CTX_SIZE }}"
+  PARALLEL: "{{ OLLAMA_PARALLEL }}"
+  CACHE_TYPE_K: "{{ OLLAMA_CACHE_TYPE_K }}"
+  CACHE_TYPE_V: "{{ OLLAMA_CACHE_TYPE_V }}"
+  PORT: "{{ OLLAMA_PORT }}"
 
 ---
 
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ OLLAMA_3B_APP_NAME }}
+  name: {{ OLLAMA_APP_NAME }}
   namespace: {{ SHARED_NAMESPACE }}
 spec:
-  serviceName: {{ OLLAMA_3B_APP_NAME }}
-  replicas: {{ OLLAMA_3B_REPLICAS }}
+  serviceName: {{ OLLAMA_APP_NAME }}
+  replicas: {{ OLLAMA_REPLICAS }}
   revisionHistoryLimit: 2
   selector:
     matchLabels:
-      app: {{ OLLAMA_3B_APP_NAME }}
+      app: {{ OLLAMA_APP_NAME }}
   updateStrategy:
     type: RollingUpdate
     rollingUpdate:
@@ -41,13 +41,16 @@ spec:
   template:
     metadata:
       labels:
-        app: {{ OLLAMA_3B_APP_NAME }}
-        model: {{ OLLAMA_3B_MODEL_LABEL }}
+        app: {{ OLLAMA_APP_NAME }}
+        model: {{ OLLAMA_MODEL_LABEL }}
     spec:
       {% if env != 'production' %}
       imagePullSecrets:
       - name: ecr-secret
       {% endif %}
+      volumes:
+        - name: models
+          emptyDir: {}
       initContainers:
         - name: model-downloader
           image: python:3.11-slim
@@ -55,6 +58,7 @@ spec:
             - /bin/sh
             - -c
             - |
+              set -x;
               MODEL_PATH="/models/${MODEL_FILE}"
               if [ -f "${MODEL_PATH}" ]; then
                 echo "Model already exists at ${MODEL_PATH}, skipping download."
@@ -62,21 +66,29 @@ spec:
               fi
               echo "Downloading ${MODEL_FILE} from ${HF_MODEL_REPO}..."
               pip install --quiet huggingface_hub
-              huggingface-cli download "${HF_MODEL_REPO}" "${MODEL_FILE}" \
-                --local-dir /models \
-                --local-dir-use-symlinks False
+              python -c "
+              from huggingface_hub import hf_hub_download
+              hf_hub_download(
+              repo_id='${HF_MODEL_REPO}',
+              filename='${MODEL_FILE}',
+              local_dir='/models'
+              )
+              "
               echo "Download complete."
           env:
             - name: MODEL_FILE
               valueFrom:
                 configMapKeyRef:
-                  name: {{ OLLAMA_3B_APP_NAME }}-config
+                  name: {{ OLLAMA_APP_NAME }}-config
                   key: MODEL_FILE
             - name: HF_MODEL_REPO
               valueFrom:
                 configMapKeyRef:
-                  name: {{ OLLAMA_3B_APP_NAME }}-config
+                  name: {{ OLLAMA_APP_NAME }}-config
                   key: HF_MODEL_REPO
+          volumeMounts:
+            - name: models
+              mountPath: /models
           resources:
             requests:
               cpu: 500m
@@ -87,83 +99,86 @@ spec:
 
       containers:
         - name: llama-server
-          image: {{ OLLAMA_3B_IMAGE }}
+          image: {{ OLLAMA_IMAGE }}
+          volumeMounts:
+            - name: models
+              mountPath: /models
           env:
             - name: MODEL_FILE
               valueFrom:
                 configMapKeyRef:
-                  name: {{ OLLAMA_3B_APP_NAME }}-config
+                  name: {{ OLLAMA_APP_NAME }}-config
                   key: MODEL_FILE
             - name: LLAMA_ARG_MODEL
               value: "/models/$(MODEL_FILE)"
             - name: LLAMA_ARG_CTX_SIZE
               valueFrom:
                 configMapKeyRef:
-                  name: {{ OLLAMA_3B_APP_NAME }}-config
+                  name: {{ OLLAMA_APP_NAME }}-config
                   key: CTX_SIZE
             - name: LLAMA_ARG_N_PARALLEL
               valueFrom:
                 configMapKeyRef:
-                  name: {{ OLLAMA_3B_APP_NAME }}-config
+                  name: {{ OLLAMA_APP_NAME }}-config
                   key: PARALLEL
             - name: LLAMA_ARG_CACHE_TYPE_K
               valueFrom:
                 configMapKeyRef:
-                  name: {{ OLLAMA_3B_APP_NAME }}-config
+                  name: {{ OLLAMA_APP_NAME }}-config
                   key: CACHE_TYPE_K
             - name: LLAMA_ARG_CACHE_TYPE_V
               valueFrom:
                 configMapKeyRef:
-                  name: {{ OLLAMA_3B_APP_NAME }}-config
+                  name: {{ OLLAMA_APP_NAME }}-config
                   key: CACHE_TYPE_V
             - name: LLAMA_ARG_HOST
               value: "0.0.0.0"
             - name: LLAMA_ARG_PORT
               valueFrom:
                 configMapKeyRef:
-                  name: {{ OLLAMA_3B_APP_NAME }}-config
+                  name: {{ OLLAMA_APP_NAME }}-config
                   key: PORT
             - name: LLAMA_ARG_NO_MMAP
               value: "1"
             - name: LLAMA_ARG_ENDPOINT_METRICS
               value: "1"
           ports:
-            - containerPort: {{ OLLAMA_3B_PORT }}
+            - containerPort: {{ OLLAMA_PORT }}
               name: http
           readinessProbe:
             httpGet:
               path: /health
-              port: {{ OLLAMA_3B_PORT }}
-            initialDelaySeconds: {{ OLLAMA_3B_READINESS_INITIAL_DELAY }}
-            periodSeconds: {{ OLLAMA_3B_READINESS_PERIOD }}
-            failureThreshold: {{ OLLAMA_3B_READINESS_FAILURE_THRESHOLD }}
+              port: {{ OLLAMA_PORT }}
+            initialDelaySeconds: {{ OLLAMA_READINESS_INITIAL_DELAY }}
+            periodSeconds: {{ OLLAMA_READINESS_PERIOD }}
+            failureThreshold: {{ OLLAMA_READINESS_FAILURE_THRESHOLD }}
           livenessProbe:
             httpGet:
               path: /health
-              port: {{ OLLAMA_3B_PORT }}
-            initialDelaySeconds: {{ OLLAMA_3B_LIVENESS_INITIAL_DELAY }}
-            periodSeconds: {{ OLLAMA_3B_LIVENESS_PERIOD }}
-            failureThreshold: {{ OLLAMA_3B_LIVENESS_FAILURE_THRESHOLD }}
+              port: {{ OLLAMA_PORT }}
+            initialDelaySeconds: {{ OLLAMA_LIVENESS_INITIAL_DELAY }}
+            periodSeconds: {{ OLLAMA_LIVENESS_PERIOD }}
+            failureThreshold: {{ OLLAMA_LIVENESS_FAILURE_THRESHOLD }}
           resources:
             requests:
-              cpu: "{{ OLLAMA_3B_CPU_REQUEST }}"
-              memory: {{ OLLAMA_3B_MEMORY_REQUEST }}
+              cpu: "{{ OLLAMA_CPU_REQUEST }}"
+              memory: {{ OLLAMA_MEMORY_REQUEST }}
             limits:
-              cpu: "{{ OLLAMA_3B_CPU_LIMIT }}"
-              memory: {{ OLLAMA_3B_MEMORY_LIMIT }}
+              cpu: "{{ OLLAMA_CPU_LIMIT }}"
+              memory: {{ OLLAMA_MEMORY_LIMIT }}
 
 ---
 
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ OLLAMA_3B_APP_NAME }}
+  name: {{ OLLAMA_APP_NAME }}
   namespace: {{ SHARED_NAMESPACE }}
 spec:
   selector:
-    app: {{ OLLAMA_3B_APP_NAME }}
+    app: {{ OLLAMA_APP_NAME }}
   ports:
     - name: http
-      port: {{ OLLAMA_3B_PORT }}
-      targetPort: {{ OLLAMA_3B_PORT }}
+      port: {{ OLLAMA_PORT }}
+      targetPort: {{ OLLAMA_PORT }}
   type: ClusterIP

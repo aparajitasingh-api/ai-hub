@@ -12,7 +12,7 @@ metadata:
   namespace: {{ SHARED_NAMESPACE }}
 data:
   config.yaml: |
-  {{ LITELLM_CONFIG }}
+    {{ LITELLM_CONFIG | indent(4) }}
 
 ---
 
@@ -56,6 +56,13 @@ spec:
               port: {{ LITELLM_PORT }}
             initialDelaySeconds: {{ LITELLM_READINESS_INITIAL_DELAY }}
             periodSeconds: {{ LITELLM_READINESS_PERIOD }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ LITELLM_PORT }}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 3
           resources:
             requests:
               cpu: "{{ LITELLM_CPU_REQUEST }}"

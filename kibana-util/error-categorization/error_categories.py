@@ -196,7 +196,7 @@ Return ONLY valid JSON in this exact format, no explanation:
   "another_category": ["its matching phrase"]
 }}"""
 
-    print("PROMPT :: ", prompt)
+    # print("PROMPT :: ", prompt)
 
     resp = litellm.completion(
         model=MODEL,
@@ -277,8 +277,8 @@ def get_error_categories(
 
 if __name__ == "__main__":
     result = get_error_categories(
-        start=datetime(2026, 3, 31, 9, 58, 12),
-        end=datetime(2026, 3, 31, 10, 58, 12),
+        start=datetime(2026, 4, 2, 20, 55, 00),
+        end=datetime(2026, 4, 2, 21, 00, 00),
         index_prefix="neoneksprod",
         container_name="bloom"
     )
