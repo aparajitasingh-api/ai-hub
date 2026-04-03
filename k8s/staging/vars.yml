@@ -1,6 +1,7 @@
 # -- Shared --
 SHARED_NAMESPACE: ai-hub
 env: staging   # <-- add this; set to "production" in prod vars
+project_name: ai-hub
 
 # litellm
 LITELLM_IMAGE: ghcr.io/berriai/litellm:main-latest
