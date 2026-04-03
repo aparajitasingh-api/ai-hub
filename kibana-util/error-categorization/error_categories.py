@@ -4,26 +4,35 @@ Uses any LiteLLM-supported LLM to discover error patterns from raw log messages.
 """
 
 import json
+import logging
 import os
 import re
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
 import litellm
 from dotenv import load_dotenv
-from elasticsearch import Elasticsearch
+from elasticsearch import Elasticsearch, ElasticsearchException
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path("error_category_cache")
 CACHE_DIR.mkdir(exist_ok=True)
 
+UNCATEGORIZED_BUCKET = "other"
+LLM_MAX_RETRIES = 3
+LLM_RETRY_DELAY = 5  # seconds
+FALLBACK_PREFIX_PATTERN = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ \w+ \d+ --- \[.*?\] \S+ +: "
 MAX_ITERATIONS = 10
-WORDS_PER_MESSAGE = 20
-TOKEN_BUDGET = 40
+WORDS_PER_MESSAGE = 10
+TOKEN_BUDGET = 500  # tokens reserved for messages within LLM context window
 CHARS_PER_TOKEN = 4
-MAX_MESSAGES = (TOKEN_BUDGET * CHARS_PER_TOKEN) // (WORDS_PER_MESSAGE * 6)  # ~6 chars/word
+AVG_CHARS_PER_WORD = 6
+MAX_MESSAGES = (TOKEN_BUDGET * CHARS_PER_TOKEN) // (WORDS_PER_MESSAGE * AVG_CHARS_PER_WORD)  # ~22
 
 # LiteLLM picks up API keys from env automatically per provider
 # e.g. ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY
@@ -84,7 +93,7 @@ def build_filter_agg(categories: dict) -> dict:
             "error_breakdown": {
                 "filters": {
                     "filters": filters,
-                    "other_bucket_key": "other"
+                    "other_bucket_key": UNCATEGORIZED_BUCKET
                 }
             }
         }
@@ -109,13 +118,17 @@ def fetch_other_messages(index: str, container: str, start: datetime, end: datet
                         "lte": end.isoformat(),
                         "format": "strict_date_optional_time"
                     }}},
-                    {"multi_match": {"type": "best_fields", "query": "error", "lenient": True}}
+                    {"match_phrase": {"message": "ERROR 1 ---"}}
                 ],
                 "must_not": must_not
             }
         }
     }
-    resp = es.search(index=index, body=query)
+    try:
+        resp = es.search(index=index, body=query)
+    except ElasticsearchException as e:
+        logger.error("ES query failed while fetching uncategorized messages: %s", e)
+        return []
     print(f"Fetched {len(resp['hits']['hits'])} 'other' messages from ES")
     return [hit["_source"]["message"] for hit in resp["hits"]["hits"]]
 
@@ -132,11 +145,15 @@ def run_category_agg(index: str, container: str, start: datetime, end: datetime,
                     "lte": end.isoformat(),
                     "format": "strict_date_optional_time"
                 }}},
-                {"multi_match": {"type": "best_fields", "query": "error", "lenient": True}}
+                {"match_phrase": {"message": "ERROR 1 ---"}}
             ]
         }
     }
-    resp = es.search(index=index, body=query)
+    try:
+        resp = es.search(index=index, body=query)
+    except ElasticsearchException as e:
+        logger.error("ES aggregation query failed: %s", e)
+        return {}
     return resp["aggregations"]["error_breakdown"]["buckets"]
 
 
@@ -145,28 +162,47 @@ def run_category_agg(index: str, container: str, start: datetime, end: datetime,
 # ---------------------------------------------------------------------------
 
 def detect_prefix_pattern(sample_messages: list[str]) -> str:
-    samples = "\n".join(sample_messages[:10])
-    prompt = f"""These are raw log messages from a Java application:
+    samples = "\n".join(sample_messages[:3])
+    prompt = f"""These are log messages:
 
 {samples}
 
-Identify the leading prefix pattern to strip before extracting error content.
-The prefix typically includes: timestamp, log level, thread id, logger class name.
-Return ONLY a Python regex pattern string (no explanation, no code block) that matches this prefix.
-Example: r'\\d{{4}}-\\d{{2}}-\\d{{2}} \\d{{2}}:\\d{{2}}:\\d{{2}}\\.\\d+ \\w+ \\d+ --- \\[.*?\\] \\S+ +: '"""
+Return ONLY a Python regex that matches the prefix (timestamp, log level, thread, class name, colon).
+No explanation. Example: \\d{{4}}-\\d{{2}}-\\d{{2}} \\d{{2}}:\\d{{2}}:\\d{{2}}\\.\\d+ \\w+ \\d+ --- \\[.*?\\] \\S+ +: """
 
-    resp = litellm.completion(
-        model=MODEL,
-        max_tokens=200,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return resp.choices[0].message.content.strip().strip("r'\"")
+    for attempt in range(LLM_MAX_RETRIES):
+        try:
+            resp = litellm.completion(
+                model=MODEL,
+                max_tokens=100,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            raw = resp.choices[0].message.content.strip()
+            # Strip markdown backticks, r-prefix, quotes the LLM may wrap around the regex
+            raw = re.sub(r"^```[a-z]*|```$", "", raw, flags=re.MULTILINE).strip()
+            raw = raw.strip("r'\"` ")
+            # Validate the regex before returning
+            try:
+                re.compile(raw)
+            except re.error:
+                logger.warning("LLM returned invalid regex: %s — using fallback", raw)
+                return FALLBACK_PREFIX_PATTERN
+            return raw
+        except Exception as e:
+            logger.warning("LLM prefix detection attempt %d/%d failed: %s", attempt + 1, LLM_MAX_RETRIES, e)
+            if attempt < LLM_MAX_RETRIES - 1:
+                time.sleep(LLM_RETRY_DELAY)
+    logger.error("LLM prefix detection failed after %d retries — using fallback", LLM_MAX_RETRIES)
+    return FALLBACK_PREFIX_PATTERN
 
 
 def strip_prefix_and_truncate(messages: list[str], prefix_pattern: str) -> list[str]:
     truncated = []
     for msg in messages:
-        stripped = re.sub(prefix_pattern, "", msg, count=1).strip()
+        try:
+            stripped = re.sub(prefix_pattern, "", msg, count=1).strip()
+        except re.error:
+            stripped = msg.strip()
         words = stripped.split()[:WORDS_PER_MESSAGE]
         truncated.append(" ".join(words))
     return truncated
@@ -180,33 +216,56 @@ def discover_categories_from_messages(truncated_messages: list[str],
         f"Existing categories: {json.dumps(existing_labels)}\n"
         if existing_labels else ""
     )
-    prompt = f"""You are analyzing error log messages from a backend service.
+    prompt = f"""Group these log messages by error type. Return JSON only.
 {existing_text}
-New messages to categorize (first {WORDS_PER_MESSAGE} words each):
 {messages_text}
 
-Group these into error categories. For each category:
-- Use a snake_case label
-- Pick a short distinctive phrase from the messages to match it (for use in Elasticsearch match_phrase)
-- Do NOT reuse existing category labels unless the message clearly belongs there
-
-Return ONLY valid JSON in this exact format, no explanation:
-{{
-  "category_label": ["matching phrase"],
-  "another_category": ["its matching phrase"]
-}}"""
+Rules:
+- Keys: snake_case names describing the specific error (NEVER use "error", "other", or "unknown" as a key)
+- Values: array with EXACTLY ONE phrase, max 5 words, copied from the messages. Do NOT copy the full message.
+{f"- Skip existing: {json.dumps(existing_labels)}" if existing_labels else ""}
+Example: {{"failed_merge_pdf": ["Failed to merge PDFs"], "no_health_trends": ["No health trends data"]}}"""
 
     # print("PROMPT :: ", prompt)
 
-    resp = litellm.completion(
-        model=MODEL,
-        max_tokens=1000,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    text = resp.choices[0].message.content.strip()
-    # strip markdown code fences if present
-    text = re.sub(r"^```json|^```|```$", "", text, flags=re.MULTILINE).strip()
-    return json.loads(text)
+    blocked_names = {"error", "other", "category_label", "another_category", "unknown"}
+
+    for attempt in range(LLM_MAX_RETRIES):
+        try:
+            resp = litellm.completion(
+                model=MODEL,
+                max_tokens=300,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            text = resp.choices[0].message.content.strip()
+            # strip markdown code fences if present
+            text = re.sub(r"^```json|^```|```$", "", text, flags=re.MULTILINE).strip()
+            raw = json.loads(text)
+            # Sanitize: keep first phrase only, drop generic names, deduplicate by phrase
+            sanitized = {}
+            seen_phrases = set()
+            for k, v in raw.items():
+                if k.lower() in blocked_names:
+                    logger.warning("Dropping generic category name from LLM output: %s", k)
+                    continue
+                phrase = v[0] if isinstance(v, list) and v else v if isinstance(v, str) else None
+                if not phrase:
+                    continue
+                if phrase.lower() in seen_phrases:
+                    logger.warning("Dropping duplicate phrase for category '%s': %s", k, phrase)
+                    continue
+                seen_phrases.add(phrase.lower())
+                sanitized[k] = [phrase]
+            return sanitized
+        except json.JSONDecodeError as e:
+            logger.warning("LLM returned invalid JSON (attempt %d/%d): %s", attempt + 1, LLM_MAX_RETRIES, e)
+        except Exception as e:
+            logger.warning("LLM category discovery attempt %d/%d failed: %s", attempt + 1, LLM_MAX_RETRIES, e)
+        if attempt < LLM_MAX_RETRIES - 1:
+            time.sleep(LLM_RETRY_DELAY)
+
+    logger.error("LLM category discovery failed after %d retries", LLM_MAX_RETRIES)
+    return {}
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +302,7 @@ def get_error_categories(
     # Iterative refinement
     for iteration in range(MAX_ITERATIONS):
         buckets = run_category_agg(index, container_name, start, end, categories)
-        other_count = buckets.get("other", {}).get("doc_count", 0)
+        other_count = buckets.get(UNCATEGORIZED_BUCKET, {}).get("doc_count", 0)
         print(f"Iteration {iteration + 1}: other bucket count = {other_count}")
 
         if other_count == 0:
@@ -277,8 +336,8 @@ def get_error_categories(
 
 if __name__ == "__main__":
     result = get_error_categories(
-        start=datetime(2026, 4, 2, 20, 55, 00),
-        end=datetime(2026, 4, 2, 21, 00, 00),
+        start=datetime(2026, 4, 2, 18, 0, 0),
+        end=datetime(2026, 4, 2, 23, 59, 59),
         index_prefix="neoneksprod",
         container_name="bloom"
     )
