@@ -1,21 +1,7 @@
-# litellm deployment template
-# ---------------------------------------------------------------------------
-# All values wrapped in ${...} are substituted from:
-#   k8s/<env>/vars.yml
-#
-# Variables use the LITELLM_ prefix.  The SHARED_ prefix is used for values
-# common to all components (e.g. namespace).
-#
-# LiteLLM acts as an OpenAI-compatible proxy in front of one or more
-# ollama-server instances.  The upstream model routing is defined in
-# LITELLM_CONFIG inside vars.yml so each environment can point to its own
-# set of ollama-server backends.
-# ---------------------------------------------------------------------------
-
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: ${SHARED_NAMESPACE}
+  name: {{ SHARED_NAMESPACE }}
 
 ---
 
@@ -23,10 +9,10 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: litellm-config
-  namespace: ${SHARED_NAMESPACE}
+  namespace: {{ SHARED_NAMESPACE }}
 data:
   config.yaml: |
-${LITELLM_CONFIG}
+  {{ LITELLM_CONFIG }}
 
 ---
 
@@ -34,9 +20,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: litellm
-  namespace: ${SHARED_NAMESPACE}
+  namespace: {{ SHARED_NAMESPACE }}
 spec:
-  replicas: ${LITELLM_REPLICAS}
+  replicas: {{ LITELLM_REPLICAS }}
   selector:
     matchLabels:
       app: litellm
@@ -45,38 +31,42 @@ spec:
       labels:
         app: litellm
     spec:
-      containers:
-        - name: litellm
-          image: ${LITELLM_IMAGE}
-          args:
-            - --config
-            - /app/config.yaml
-            - --port
-            - "${LITELLM_PORT}"
-          ports:
-            - containerPort: ${LITELLM_PORT}
-              name: http
-          volumeMounts:
-            - name: litellm-config
-              mountPath: /app/config.yaml
-              subPath: config.yaml
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: ${LITELLM_PORT}
-            initialDelaySeconds: ${LITELLM_READINESS_INITIAL_DELAY}
-            periodSeconds: ${LITELLM_READINESS_PERIOD}
-          resources:
-            requests:
-              cpu: "${LITELLM_CPU_REQUEST}"
-              memory: ${LITELLM_MEMORY_REQUEST}
-            limits:
-              cpu: "${LITELLM_CPU_LIMIT}"
-              memory: ${LITELLM_MEMORY_LIMIT}
-      volumes:
-        - name: litellm-config
-          configMap:
-            name: litellm-config
+  {% if env != 'production' %}
+imagePullSecrets:
+  - name: ecr-secret
+  {% endif %}
+containers:
+  - name: litellm
+    image: {{ LITELLM_IMAGE }}
+    args:
+      - --config
+      - /app/config.yaml
+      - --port
+      - "{{ LITELLM_PORT }}"
+    ports:
+      - containerPort: {{ LITELLM_PORT }}
+        name: http
+    volumeMounts:
+      - name: litellm-config
+        mountPath: /app/config.yaml
+        subPath: config.yaml
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: {{ LITELLM_PORT }}
+      initialDelaySeconds: {{ LITELLM_READINESS_INITIAL_DELAY }}
+      periodSeconds: {{ LITELLM_READINESS_PERIOD }}
+    resources:
+      requests:
+        cpu: "{{ LITELLM_CPU_REQUEST }}"
+        memory: {{ LITELLM_MEMORY_REQUEST }}
+      limits:
+        cpu: "{{ LITELLM_CPU_LIMIT }}"
+        memory: {{ LITELLM_MEMORY_LIMIT }}
+volumes:
+  - name: litellm-config
+    configMap:
+      name: litellm-config
 
 ---
 
@@ -84,12 +74,13 @@ apiVersion: v1
 kind: Service
 metadata:
   name: litellm
-  namespace: ${SHARED_NAMESPACE}
+  namespace: {{ SHARED_NAMESPACE }}
 spec:
   selector:
     app: litellm
   ports:
     - name: http
-      port: ${LITELLM_PORT}
-      targetPort: ${LITELLM_PORT}
+      port: {{ LITELLM_PORT }}
+      targetPort: {{ LITELLM_PORT }}
   type: ClusterIP
+
