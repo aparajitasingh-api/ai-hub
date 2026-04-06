@@ -118,7 +118,15 @@ def fetch_other_messages(index: str, container: str, start: datetime, end: datet
                         "lte": end.isoformat(),
                         "format": "strict_date_optional_time"
                     }}},
-                    {"match_phrase": {"message": "ERROR 1 ---"}}
+                    {"bool": {
+                        "should": [
+                            {"match_phrase": {"message": "ERROR"}},
+                            {"match_phrase": {"message": "Exception"}},
+                            {"match_phrase": {"message": "FATAL"}},
+                            {"match_phrase": {"message": "error"}},
+                        ],
+                        "minimum_should_match": 1
+                    }}
                 ],
                 "must_not": must_not
             }
@@ -145,7 +153,15 @@ def run_category_agg(index: str, container: str, start: datetime, end: datetime,
                     "lte": end.isoformat(),
                     "format": "strict_date_optional_time"
                 }}},
-                {"match_phrase": {"message": "ERROR 1 ---"}}
+                {"bool": {
+                    "should": [
+                        {"match_phrase": {"message": "ERROR"}},
+                        {"match_phrase": {"message": "Exception"}},
+                        {"match_phrase": {"message": "FATAL"}},
+                        {"match_phrase": {"message": "error"}},
+                    ],
+                    "minimum_should_match": 1
+                }}
             ]
         }
     }
@@ -162,7 +178,8 @@ def run_category_agg(index: str, container: str, start: datetime, end: datetime,
 # ---------------------------------------------------------------------------
 
 def detect_prefix_pattern(sample_messages: list[str]) -> str:
-    samples = "\n".join(sample_messages[:3])
+    # Truncate each sample to first 200 chars to avoid blowing the context window
+    samples = "\n".join(m[:200] for m in sample_messages[:3])
     prompt = f"""These are log messages:
 
 {samples}
@@ -335,11 +352,20 @@ def get_error_categories(
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Discover and count error categories from Kibana logs")
+    parser.add_argument("--container", required=True, help="kubernetes.container.name to analyse")
+    parser.add_argument("--start", required=True, help="Start datetime, e.g. '2026-04-02T18:00:00'")
+    parser.add_argument("--end", required=True, help="End datetime, e.g. '2026-04-02T23:59:59'")
+    parser.add_argument("--index-prefix", default="neoneksprod", help="ES index prefix (default: neoneksprod)")
+    args = parser.parse_args()
+
     result = get_error_categories(
-        start=datetime(2026, 4, 2, 18, 0, 0),
-        end=datetime(2026, 4, 2, 23, 59, 59),
-        index_prefix="neoneksprod",
-        container_name="bloom"
+        start=datetime.fromisoformat(args.start),
+        end=datetime.fromisoformat(args.end),
+        index_prefix=args.index_prefix,
+        container_name=args.container,
     )
     print("\nError category counts:")
     for category, count in sorted(result.items(), key=lambda x: -x[1]):
