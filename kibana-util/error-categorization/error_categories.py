@@ -30,7 +30,7 @@ LLM_MAX_RETRIES = 3
 LLM_RETRY_DELAY = 5  # seconds
 FALLBACK_PREFIX_PATTERN = r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d+ \w+ \d+ --- \[.*?\] \S+ +: "
 MAX_ITERATIONS = 10
-WORDS_PER_MESSAGE = 10
+WORDS_PER_MESSAGE = 20
 TOKEN_BUDGET = 500  # tokens reserved for messages within LLM context window
 CHARS_PER_TOKEN = 4
 AVG_CHARS_PER_WORD = 6
@@ -252,9 +252,10 @@ def discover_categories_from_messages(truncated_messages: list[str],
 
 Rules:
 - Keys: snake_case names describing the specific error (NEVER use "error", "other", or "unknown" as a key)
-- Values: array with EXACTLY ONE phrase, max 5 words, copied from the messages. Do NOT copy the full message.
+- Values: array with EXACTLY ONE phrase (3-8 words) copied verbatim from the messages. The phrase will be used as an Elasticsearch match_phrase filter, so it must be specific enough to uniquely identify this error type.
+- NEVER use single words or generic terms like "GET", "POST", "Error", "Exception", "Deadlock", "Optimistic" as phrases. Always include surrounding context words.
 {f"- Skip existing: {json.dumps(existing_labels)}" if existing_labels else ""}
-Example: {{"failed_merge_pdf": ["Failed to merge PDFs"], "no_health_trends": ["No health trends data"]}}"""
+Example: {{"failed_merge_pdf": ["Failed to merge PDFs"], "wallet_credit_400": ["/v1/wallet/credit|400|"], "optimistic_lock_saving_bucket": ["Optimistic lock exception while saving"]}}"""
 
     # print("PROMPT :: ", prompt)
 
@@ -280,6 +281,10 @@ Example: {{"failed_merge_pdf": ["Failed to merge PDFs"], "no_health_trends": ["N
                     continue
                 phrase = v[0] if isinstance(v, list) and v else v if isinstance(v, str) else None
                 if not phrase:
+                    continue
+                # Reject phrases that are too short/generic to be useful as ES filters
+                if len(phrase.split()) < 2:
+                    logger.warning("Dropping too-short phrase for category '%s': '%s'", k, phrase)
                     continue
                 if phrase.lower() in seen_phrases:
                     logger.warning("Dropping duplicate phrase for category '%s': %s", k, phrase)
