@@ -238,6 +238,44 @@ def strip_prefix_and_truncate(messages: list[str], prefix_pattern: str) -> list[
     return truncated
 
 
+def _lengthen_short_phrases(short_categories: dict, messages: list[str]) -> dict:
+    """Ask the LLM for longer, more specific phrases for categories that were too short."""
+    categories_text = json.dumps(short_categories)
+    messages_text = "\n".join(f"- {m}" for m in messages[:10])
+    prompt = f"""These error category phrases are too short to be useful as search filters:
+{categories_text}
+
+Here are the original log messages they came from:
+{messages_text}
+
+For each category, return a longer phrase (3-8 words) copied verbatim from the messages that uniquely identifies this error type. Return JSON only.
+Example: {{"deadlock": "Deadlock found when trying to get lock"}}"""
+
+    try:
+        resp = litellm.completion(
+            model=MODEL,
+            max_tokens=200,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        text = resp.choices[0].message.content.strip()
+        text = re.sub(r"^```json|^```|```$", "", text, flags=re.MULTILINE).strip()
+        raw = json.loads(text)
+        result = {}
+        for k, phrase in raw.items():
+            if isinstance(phrase, list):
+                phrase = phrase[0]
+            if not isinstance(phrase, str) or len(phrase.split()) < 2:
+                # Last resort: keep the original short phrase so it still ends up in the cache
+                logger.warning("Could not lengthen phrase for '%s', keeping original: '%s'", k, short_categories.get(k))
+                result[k] = short_categories[k]
+            else:
+                result[k] = phrase
+        return result
+    except Exception as e:
+        logger.warning("Failed to lengthen short phrases: %s — keeping originals", e)
+        return short_categories
+
+
 def discover_categories_from_messages(truncated_messages: list[str],
                                        existing_categories: dict) -> dict:
     existing_labels = list(existing_categories.keys()) if existing_categories else []
@@ -274,6 +312,7 @@ Example: {{"failed_merge_pdf": ["Failed to merge PDFs"], "wallet_credit_400": ["
             raw = json.loads(text)
             # Sanitize: keep first phrase only, drop generic names, deduplicate by phrase
             sanitized = {}
+            too_short = {}
             seen_phrases = set()
             for k, v in raw.items():
                 if k.lower() in blocked_names:
@@ -282,15 +321,24 @@ Example: {{"failed_merge_pdf": ["Failed to merge PDFs"], "wallet_credit_400": ["
                 phrase = v[0] if isinstance(v, list) and v else v if isinstance(v, str) else None
                 if not phrase:
                     continue
-                # Reject phrases that are too short/generic to be useful as ES filters
+                # Collect too-short phrases for a retry
                 if len(phrase.split()) < 2:
-                    logger.warning("Dropping too-short phrase for category '%s': '%s'", k, phrase)
+                    too_short[k] = phrase
                     continue
                 if phrase.lower() in seen_phrases:
                     logger.warning("Dropping duplicate phrase for category '%s': %s", k, phrase)
                     continue
                 seen_phrases.add(phrase.lower())
                 sanitized[k] = [phrase]
+
+            # Ask the LLM for longer phrases for any too-short ones
+            if too_short:
+                lengthened = _lengthen_short_phrases(too_short, truncated_messages)
+                for k, phrase in lengthened.items():
+                    if phrase.lower() not in seen_phrases:
+                        seen_phrases.add(phrase.lower())
+                        sanitized[k] = [phrase]
+
             return sanitized
         except json.JSONDecodeError as e:
             logger.warning("LLM returned invalid JSON (attempt %d/%d): %s", attempt + 1, LLM_MAX_RETRIES, e)
