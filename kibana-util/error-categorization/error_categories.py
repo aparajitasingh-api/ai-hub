@@ -14,7 +14,9 @@ from typing import Optional
 
 import litellm
 from dotenv import load_dotenv
-from elasticsearch import Elasticsearch, ElasticsearchException
+from elasticsearch import ElasticsearchException
+
+from kibana_client import KibanaSearchClient, KibanaSearchException, create_search_client
 
 load_dotenv()
 
@@ -38,7 +40,14 @@ MAX_MESSAGES = (TOKEN_BUDGET * CHARS_PER_TOKEN) // (WORDS_PER_MESSAGE * AVG_CHAR
 # e.g. ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENAI_API_KEY
 MODEL = os.getenv("LLM_MODEL", "qwen-local")
 
-es = Elasticsearch([os.getenv("ES_HOST", "http://localhost:9200")])
+es = None  # initialized in main or by init_client()
+
+
+def init_client(kibana_url: str = None, kibana_username: str = None, kibana_password: str = None):
+    """Initialize the module-level ES client."""
+    global es
+    es = create_search_client(kibana_url=kibana_url, kibana_username=kibana_username,
+                              kibana_password=kibana_password)
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +121,7 @@ def fetch_other_messages(index: str, container: str, start: datetime, end: datet
         "query": {
             "bool": {
                 "filter": [
-                    {"match_phrase": {"kubernetes.container.name": container}},
+                    {"term": {"kubernetes.container.name.keyword": container}},
                     {"range": {"@timestamp": {
                         "gte": start.isoformat(),
                         "lte": end.isoformat(),
@@ -134,7 +143,7 @@ def fetch_other_messages(index: str, container: str, start: datetime, end: datet
     }
     try:
         resp = es.search(index=index, body=query)
-    except ElasticsearchException as e:
+    except (ElasticsearchException, KibanaSearchException) as e:
         logger.error("ES query failed while fetching uncategorized messages: %s", e)
         return []
     print(f"Fetched {len(resp['hits']['hits'])} 'other' messages from ES")
@@ -147,7 +156,7 @@ def run_category_agg(index: str, container: str, start: datetime, end: datetime,
     query["query"] = {
         "bool": {
             "filter": [
-                {"match_phrase": {"kubernetes.container.name": container}},
+                {"term": {"kubernetes.container.name.keyword": container}},
                 {"range": {"@timestamp": {
                     "gte": start.isoformat(),
                     "lte": end.isoformat(),
@@ -167,7 +176,7 @@ def run_category_agg(index: str, container: str, start: datetime, end: datetime,
     }
     try:
         resp = es.search(index=index, body=query)
-    except ElasticsearchException as e:
+    except (ElasticsearchException, KibanaSearchException) as e:
         logger.error("ES aggregation query failed: %s", e)
         return {}
     return resp["aggregations"]["error_breakdown"]["buckets"]
@@ -318,8 +327,11 @@ def get_error_categories(
 
     # Iterative refinement
     for iteration in range(MAX_ITERATIONS):
-        buckets = run_category_agg(index, container_name, start, end, categories)
-        other_count = buckets.get(UNCATEGORIZED_BUCKET, {}).get("doc_count", 0)
+        if categories:
+            buckets = run_category_agg(index, container_name, start, end, categories)
+            other_count = buckets.get(UNCATEGORIZED_BUCKET, {}).get("doc_count", 0)
+        else:
+            other_count = -1  # force fetch when no categories exist yet
         print(f"Iteration {iteration + 1}: other bucket count = {other_count}")
 
         if other_count == 0:
@@ -346,6 +358,9 @@ def get_error_categories(
         print(f"Reached max iterations ({MAX_ITERATIONS}). Some messages may remain in 'other'.")
 
     # Final aggregation
+    if not categories:
+        print("No categories discovered.")
+        return {}
     buckets = run_category_agg(index, container_name, start, end, categories)
     result = {name: data["doc_count"] for name, data in buckets.items()}
     return result
@@ -353,13 +368,38 @@ def get_error_categories(
 
 if __name__ == "__main__":
     import argparse
+    import sys
 
     parser = argparse.ArgumentParser(description="Discover and count error categories from Kibana logs")
-    parser.add_argument("--container", required=True, help="kubernetes.container.name to analyse")
-    parser.add_argument("--start", required=True, help="Start datetime, e.g. '2026-04-02T18:00:00'")
-    parser.add_argument("--end", required=True, help="End datetime, e.g. '2026-04-02T23:59:59'")
+    parser.add_argument("--container", help="kubernetes.container.name to analyse")
+    parser.add_argument("--start", help="Start datetime, e.g. '2026-04-02T18:00:00'")
+    parser.add_argument("--end", help="End datetime, e.g. '2026-04-02T23:59:59'")
     parser.add_argument("--index-prefix", default="neoneksprod", help="ES index prefix (default: neoneksprod)")
+    parser.add_argument("--kibana-url", default=None,
+                        help="Kibana URL to proxy ES queries through (instead of direct ES)")
+    parser.add_argument("--kibana-username", default=None, help="Kibana username for basic auth")
+    parser.add_argument("--kibana-password", default=None, help="Kibana password for basic auth")
+    parser.add_argument("--discover-indices", action="store_true",
+                        help="List available indices from the cluster and exit")
     args = parser.parse_args()
+
+    init_client(kibana_url=args.kibana_url, kibana_username=args.kibana_username,
+                kibana_password=args.kibana_password)
+
+    if args.discover_indices:
+        if not isinstance(es, KibanaSearchClient):
+            print("--discover-indices requires --kibana-url")
+            sys.exit(1)
+        print("Saved index patterns in Kibana:")
+        for pat in es.list_index_patterns():
+            print(f"  {pat['title']}")
+        print("\nResolving concrete indices (may be slow)...")
+        for idx in es.resolve_indices():
+            print(f"  {idx}")
+        sys.exit(0)
+
+    if not args.container or not args.start or not args.end:
+        parser.error("--container, --start, and --end are required (unless using --discover-indices)")
 
     result = get_error_categories(
         start=datetime.fromisoformat(args.start),

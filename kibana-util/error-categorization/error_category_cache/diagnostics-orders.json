@@ -1,0 +1,14 @@
+{
+  "categories": {
+    "unable_to_fetch_order_data": ["Unable to fetch order data for order_id"],
+    "thyrocare_send_notification": ["Send notification for PE-TC"],
+    "unable_to_fetch_test_details": ["Unable to fetch test details for order_id"],
+    "no_tests_updated": ["No new tests were updated for order_id"],
+    "cart_service_error": ["get cart data is : {'status': 0"],
+    "place_partner_order": ["Place partner order response"],
+    "transaction_status": ["Transaction status is"],
+    "lab_service_response": ["lab service response is"],
+    "switch_data": ["switch data :"]
+  },
+  "last_updated": "2026-04-08T08:30:00.000000Z"
+}
