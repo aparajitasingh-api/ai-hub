@@ -1,0 +1,44 @@
+{
+  "categories": {
+    "order_edit_failed": [
+      "Order edit failed"
+    ],
+    "failed_to_generate_merged_report": [
+      "Failed to generate merged report"
+    ],
+    "failed_to_merge_pdfs": [
+      "Failed to merge PDFs"
+    ],
+    "error_decoder_called": [
+      "Error decoder called"
+    ],
+    "feign_exception": [
+      "FeignException in Easy bot trigger order webhook - status: 400"
+    ],
+    "missing_partner_patient_id": [
+      "Missing partnerPatientId for"
+    ],
+    "order_cancellation_failed": [
+      "Order cancellation failed for"
+    ],
+    "empty_techso_response": [
+      "Techso API returned an empty or null response for"
+    ],
+    "no_techso_response": [
+      "No technical response from service"
+    ],
+    "retry_called_attempt": [
+      "Retry called attempt"
+    ],
+    "exception_while_processing_view-report_apis": [
+      "Exception while processing view-report apis"
+    ],
+    "partner_patient_id_not_found_in_order": [
+      "Partner patient ID not found in order"
+    ],
+    "no_health_trends": [
+      "No health trends data"
+    ]
+  },
+  "last_updated": "2026-04-03T14:04:18.921002Z"
+}
