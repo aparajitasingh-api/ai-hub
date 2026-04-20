@@ -179,7 +179,11 @@ def run_category_agg(index: str, container: str, start: datetime, end: datetime,
     except (ElasticsearchException, KibanaSearchException) as e:
         logger.error("ES aggregation query failed: %s", e)
         return {}
-    return resp["aggregations"]["error_breakdown"]["buckets"]
+    try:
+        return resp["aggregations"]["error_breakdown"]["buckets"]
+    except KeyError:
+        logger.error("Unexpected aggregation response — check that the index prefix and container are correct. Response: %s", resp)
+        return {}
 
 
 # ---------------------------------------------------------------------------
